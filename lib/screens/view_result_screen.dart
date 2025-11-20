@@ -213,7 +213,7 @@ class _ViewResultScreenState extends State<ViewResultScreen> {
                             physics: const BouncingScrollPhysics(),
                             padding: const EdgeInsets.only(
                               right: 12,
-                              bottom: 12,
+                              bottom: 28,
                             ),
                             child: Text(
                               result.prompt,
