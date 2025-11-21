@@ -148,7 +148,7 @@ async function saveGeneratedImage(
     expires: Date.now() + 1000 * 60 * 60 * 24 * 7,
   });
 
-  const userRef = firestore.collection('photoaitest').doc(uid);
+  const userRef = firestore.collection('users').doc(uid);
   await userRef.set(
       {
         lastGeneratedAt: FieldValue.serverTimestamp(),
