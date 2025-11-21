@@ -160,9 +160,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                                     onOpenSceneModal: () =>
                                         _showSceneSelectionModal(context),
                                     onGenerate: () => _onGeneratePressed(
-                                          uid: user.uid,
-                                          hasExistingImages: generationState.generatedImages.isNotEmpty,
-                                        ),
+                                      uid: user.uid,
+                                      hasExistingImages: generationState
+                                          .generatedImages
+                                          .isNotEmpty,
+                                    ),
                                     uploadState: uploadState,
                                     generationState: generationState,
                                     clearErrors: () {
@@ -178,7 +180,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                                           )
                                           .clearError();
                                     },
-                                    onShowError: (error) => _showErrorDialog(context, error),
+                                    onShowError: (error) =>
+                                        _showErrorDialog(context, error),
                                   ),
                                 ),
                               ],
@@ -218,9 +221,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                                   onOpenSceneModal: () =>
                                       _showSceneSelectionModal(context),
                                   onGenerate: () => _onGeneratePressed(
-                                        uid: user.uid,
-                                        hasExistingImages: generationState.generatedImages.isNotEmpty,
-                                      ),
+                                    uid: user.uid,
+                                    hasExistingImages: generationState
+                                        .generatedImages
+                                        .isNotEmpty,
+                                  ),
                                   uploadState: uploadState,
                                   generationState: generationState,
                                   clearErrors: () {
@@ -233,7 +238,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                                         )
                                         .clearError();
                                   },
-                                  onShowError: (error) => _showErrorDialog(context, error),
+                                  onShowError: (error) =>
+                                      _showErrorDialog(context, error),
                                 ),
                               ),
                             ],
@@ -409,24 +415,25 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   Future<bool> _showRegenerateWarningDialog(BuildContext context) async {
     return await showDialog<bool>(
-      context: context,
-      barrierColor: Colors.black.withValues(alpha: 0.7),
-      builder: (context) => _RegenerateWarningDialog(
-        onDontShowAgain: (shouldDontShow) {
-          if (shouldDontShow) {
-            setState(() {
-              _dontShowRegenerateWarning = true;
-            });
-          }
-        },
-        onCancel: () {
-          Navigator.of(context).pop(false);
-        },
-        onGenerate: () {
-          Navigator.of(context).pop(true);
-        },
-      ),
-    ) ?? false;
+          context: context,
+          barrierColor: Colors.black.withValues(alpha: 0.7),
+          builder: (context) => _RegenerateWarningDialog(
+            onDontShowAgain: (shouldDontShow) {
+              if (shouldDontShow) {
+                setState(() {
+                  _dontShowRegenerateWarning = true;
+                });
+              }
+            },
+            onCancel: () {
+              Navigator.of(context).pop(false);
+            },
+            onGenerate: () {
+              Navigator.of(context).pop(true);
+            },
+          ),
+        ) ??
+        false;
   }
 }
 
@@ -487,28 +494,25 @@ class _FullScreenImageOverlayState extends State<_FullScreenImageOverlay>
     // Stop any ongoing animation first
     _zoomController.stop();
     _zoomController.reset();
-    
+
     // Capture the exact current transformation at this moment
     final currentValue = Matrix4.copy(_transformationController.value);
     final targetValue = Matrix4.identity();
-    
+
     // Set the current value immediately to ensure we start from the exact position
     _transformationController.value = currentValue;
-    
-    final animation = Tween<Matrix4>(
-      begin: currentValue,
-      end: targetValue,
-    ).animate(CurvedAnimation(
-      parent: _zoomController,
-      curve: Curves.easeInOut,
-    ));
-    
+
+    final animation = Tween<Matrix4>(begin: currentValue, end: targetValue)
+        .animate(
+          CurvedAnimation(parent: _zoomController, curve: Curves.easeInOut),
+        );
+
     animation.addListener(() {
       if (_zoomController.isAnimating) {
         _transformationController.value = animation.value;
       }
     });
-    
+
     _zoomController.forward().then((_) {
       _transformationController.value = targetValue;
     });
@@ -547,7 +551,8 @@ class _FullScreenImageOverlayState extends State<_FullScreenImageOverlay>
                 child: AnimatedBuilder(
                   animation: _transformationController,
                   builder: (context, child) {
-                    final scale = _transformationController.value.getMaxScaleOnAxis();
+                    final scale = _transformationController.value
+                        .getMaxScaleOnAxis();
                     final isZoomed = scale > 1.0;
                     return Container(
                       decoration: BoxDecoration(
@@ -570,8 +575,11 @@ class _FullScreenImageOverlayState extends State<_FullScreenImageOverlay>
                           fit: BoxFit.contain,
                           placeholder: (context, url) =>
                               const Center(child: CircularProgressIndicator()),
-                          errorWidget: (context, url, error) =>
-                              const Icon(Icons.error, size: 40, color: Colors.white),
+                          errorWidget: (context, url, error) => const Icon(
+                            Icons.error,
+                            size: 40,
+                            color: Colors.white,
+                          ),
                         ),
                       ),
                     );
@@ -902,27 +910,29 @@ class _GeneratedImageCard extends StatelessWidget {
                       color: Colors.grey.shade800,
                       child: const Center(child: CircularProgressIndicator()),
                     ),
-                    errorWidget: (context, url, error) => const Icon(Icons.error),
+                    errorWidget: (context, url, error) =>
+                        const Icon(Icons.error),
                   );
                 }
                 final imageSize = snapshot.data!;
                 final isPortrait = imageSize.height > imageSize.width;
-                
+
                 return LayoutBuilder(
                   builder: (context, constraints) {
-                    final containerAspectRatio = constraints.maxWidth / constraints.maxHeight;
-                    
+                    final containerAspectRatio =
+                        constraints.maxWidth / constraints.maxHeight;
+
                     // If image is portrait and container is portrait, use cover for edge-to-edge
                     // If image is landscape and container is landscape, use cover for edge-to-edge
                     // Otherwise use contain to show full image
                     BoxFit fit;
-                    if ((isPortrait && containerAspectRatio < 1) || 
+                    if ((isPortrait && containerAspectRatio < 1) ||
                         (!isPortrait && containerAspectRatio >= 1)) {
                       fit = BoxFit.cover;
                     } else {
                       fit = BoxFit.contain;
                     }
-                    
+
                     return CachedNetworkImage(
                       imageUrl: image.imageUrl,
                       fit: fit,
@@ -931,7 +941,8 @@ class _GeneratedImageCard extends StatelessWidget {
                         color: Colors.grey.shade800,
                         child: const Center(child: CircularProgressIndicator()),
                       ),
-                      errorWidget: (context, url, error) => const Icon(Icons.error),
+                      errorWidget: (context, url, error) =>
+                          const Icon(Icons.error),
                     );
                   },
                 );
@@ -1018,12 +1029,8 @@ class _ImagePreview extends StatelessWidget {
                         padding: const EdgeInsets.symmetric(horizontal: 16),
                         child: Text(
                           'Front-facing, good lighting, minimal background.',
-                          style: Theme.of(
-                            context,
-                          ).textTheme.bodySmall?.copyWith(
-                            color: Colors.white70,
-                            fontSize: 11,
-                          ),
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(color: Colors.white70, fontSize: 11),
                           textAlign: TextAlign.center,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
@@ -1226,7 +1233,8 @@ class _GeneratePanel extends StatelessWidget {
                           initialChildSize: 0.85,
                           minChildSize: 0.5,
                           maxChildSize: 0.95,
-                          builder: (context, scrollController) => const HistoryModal(),
+                          builder: (context, scrollController) =>
+                              const HistoryModal(),
                         ),
                       );
                     },
@@ -1538,10 +1546,7 @@ class _RegenerateWarningDialogState extends State<_RegenerateWarningDialog>
                     height: 64,
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
-                        colors: [
-                          Colors.amber.shade400,
-                          Colors.amber.shade600,
-                        ],
+                        colors: [Colors.amber.shade400, Colors.amber.shade600],
                       ),
                       shape: BoxShape.circle,
                       boxShadow: [
@@ -1592,7 +1597,9 @@ class _RegenerateWarningDialogState extends State<_RegenerateWarningDialog>
                                 side: BorderSide(
                                   color: Colors.white.withValues(alpha: 0.2),
                                 ),
-                                padding: const EdgeInsets.symmetric(vertical: 14),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 14,
+                                ),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(16),
                                 ),
@@ -1616,7 +1623,9 @@ class _RegenerateWarningDialogState extends State<_RegenerateWarningDialog>
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: Colors.indigoAccent,
                                 foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(vertical: 14),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 14,
+                                ),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(16),
                                 ),
@@ -1655,10 +1664,11 @@ class _RegenerateWarningDialogState extends State<_RegenerateWarningDialog>
                             },
                             child: Text(
                               'Don\'t show again',
-                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                color: Colors.white70,
-                                fontSize: 12,
-                              ),
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(
+                                    color: Colors.white70,
+                                    fontSize: 12,
+                                  ),
                             ),
                           ),
                         ],
@@ -1676,10 +1686,7 @@ class _RegenerateWarningDialogState extends State<_RegenerateWarningDialog>
 }
 
 class _ErrorDialog extends StatefulWidget {
-  const _ErrorDialog({
-    required this.error,
-    required this.onOk,
-  });
+  const _ErrorDialog({required this.error, required this.onOk});
 
   final String error;
   final VoidCallback onOk;
@@ -1768,10 +1775,7 @@ class _ErrorDialogState extends State<_ErrorDialog>
                     height: 64,
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
-                        colors: [
-                          Colors.red.shade400,
-                          Colors.red.shade600,
-                        ],
+                        colors: [Colors.red.shade400, Colors.red.shade600],
                       ),
                       shape: BoxShape.circle,
                       boxShadow: [
