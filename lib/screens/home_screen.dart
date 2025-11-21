@@ -56,6 +56,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     final generationState = ref.watch(generationControllerProvider);
     final ensureAuth = ref.watch(ensureAuthProvider);
 
+    ref.listen(uploadControllerProvider, (previous, next) {
+      if (next.localFile != null && next.localFile != previous?.localFile) {
+        if (_showGeneratedImages) {
+          setState(() {
+            _showGeneratedImages = false;
+          });
+        }
+      }
+    });
+
     final canPop = _fullScreenImageUrl == null && !_showGeneratedImages;
 
     return PopScope(
