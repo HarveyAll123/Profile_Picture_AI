@@ -57,9 +57,7 @@ class _SceneSelectionModalState extends State<SceneSelectionModal> {
     }
 
     final newCount = _localSelectedIds.length;
-    if (widget.onReachedFive != null &&
-        previousCount < 5 &&
-        newCount >= 5) {
+    if (widget.onReachedFive != null && previousCount < 5 && newCount >= 5) {
       await widget.onReachedFive!();
     }
   }
@@ -75,8 +73,9 @@ class _SceneSelectionModalState extends State<SceneSelectionModal> {
     setState(() {
       _isSubmitting = true;
     });
-    final shouldClose =
-        await widget.onApply(Set<String>.from(_localSelectedIds));
+    final shouldClose = await widget.onApply(
+      Set<String>.from(_localSelectedIds),
+    );
     if (!mounted) return;
     setState(() {
       _isSubmitting = false;
@@ -101,207 +100,196 @@ class _SceneSelectionModalState extends State<SceneSelectionModal> {
         borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
       ),
       child: SafeArea(
-        child: SingleChildScrollView(
-          controller: widget.scrollController,
-          padding: EdgeInsets.fromLTRB(20, 20, 20, 20 + bottomInset),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Align(
-                alignment: Alignment.center,
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  margin: const EdgeInsets.only(bottom: 16),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade600,
-                    borderRadius: BorderRadius.circular(2),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+              child: Column(
+                children: [
+                  Container(
+                    width: 40,
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 16),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade600,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Select Scenes',
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          TextButton(
+                            onPressed: _localSelectedIds.isEmpty
+                                ? null
+                                : _handleReset,
+                            child: const Text('Reset'),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.close),
+                            onPressed: () => Navigator.of(context).pop(),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Choose your scene(s) to generate',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.onSurface.withValues(alpha: 0.65),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+              ),
+            ),
+            Expanded(
+              child: ListView.separated(
+                controller: widget.scrollController,
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                itemCount: scenePresets.length,
+                separatorBuilder: (context, index) =>
+                    const SizedBox(height: 12),
+                itemBuilder: (context, index) {
+                  final preset = scenePresets[index];
+                  return _SceneOption(
+                    preset: preset,
+                    isSelected: _localSelectedIds.contains(preset.id),
+                    onTap: () => _handleSceneToggle(preset.id),
+                  );
+                },
+              ),
+            ),
+            Container(
+              padding: EdgeInsets.fromLTRB(20, 16, 20, 16 + bottomInset),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surface,
+                border: Border(
+                  top: BorderSide(
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.onSurface.withValues(alpha: 0.05),
                   ),
                 ),
               ),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(
-                    'Select Scenes',
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.bold,
+                  if (selectedNames.isNotEmpty) ...[
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: Colors.indigoAccent.withValues(alpha: 0.3),
                         ),
-                  ),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      TextButton(
-                        onPressed:
-                            _localSelectedIds.isEmpty ? null : _handleReset,
-                        child: const Text('Reset'),
+                        color: Colors.indigoAccent.withValues(alpha: 0.1),
                       ),
-                      IconButton(
-                        icon: const Icon(Icons.close),
-                        onPressed: () => Navigator.of(context).pop(),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            'Selected: ',
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(
+                                  color: Colors.indigoAccent,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                          ),
+                          Flexible(
+                            child: Text(
+                              selectedNames.length <= 3
+                                  ? selectedNames.join(', ')
+                                  : '${selectedNames.take(2).join(', ')} +${selectedNames.length - 2}',
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(
+                                    color: Colors.indigoAccent,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: _localSelectedIds.isEmpty || _isSubmitting
+                          ? null
+                          : _handleApply,
+                      style: ButtonStyle(
+                        backgroundColor: WidgetStateProperty.resolveWith((
+                          states,
+                        ) {
+                          const base = Colors.indigoAccent;
+                          if (states.contains(WidgetState.disabled)) {
+                            return base.withValues(alpha: 0.35);
+                          }
+                          return base;
+                        }),
+                        foregroundColor: WidgetStateProperty.all<Color>(
+                          Colors.white,
+                        ),
+                        padding: WidgetStateProperty.all(
+                          const EdgeInsets.symmetric(vertical: 14),
+                        ),
+                        shape: WidgetStateProperty.all(
+                          RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                        ),
+                        textStyle: WidgetStateProperty.all(
+                          const TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 15,
+                          ),
+                        ),
+                      ),
+                      child: _isSubmitting
+                          ? const SizedBox(
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  Colors.white,
+                                ),
+                              ),
+                            )
+                          : const Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.check_circle_outline, size: 20),
+                                SizedBox(width: 8),
+                                Text('Done'),
+                              ],
+                            ),
+                    ),
                   ),
                 ],
               ),
-              const SizedBox(height: 6),
-              Text(
-                'Choose your scene(s) to generate',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(context)
-                          .colorScheme
-                          .onSurface
-                          .withValues(alpha: 0.65),
-                    ),
-              ),
-              const SizedBox(height: 20),
-              SizedBox(
-                height: 240,
-                child: PageView.builder(
-                  itemCount: (scenePresets.length / 2).ceil(),
-                  itemBuilder: (context, pageIndex) {
-                    final startIndex = pageIndex * 2;
-                    final endIndex =
-                        (startIndex + 2).clamp(0, scenePresets.length);
-                    return Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        for (int i = startIndex; i < endIndex; i++)
-                          Padding(
-                            padding: EdgeInsets.only(
-                              bottom: i < endIndex - 1 ? 14 : 0,
-                            ),
-                            child: _SceneOption(
-                              preset: scenePresets[i],
-                              isSelected:
-                                  _localSelectedIds.contains(scenePresets[i].id),
-                              onTap: () =>
-                                  _handleSceneToggle(scenePresets[i].id),
-                            ),
-                          ),
-                      ],
-                    );
-                  },
-                ),
-              ),
-              const SizedBox(height: 20),
-              if (selectedNames.isNotEmpty)
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 8,
-                  ),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: Colors.indigoAccent.withValues(alpha: 0.3),
-                    ),
-                    color: Colors.indigoAccent.withValues(alpha: 0.1),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        'Selected: ',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Colors.indigoAccent,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      Flexible(
-                        child: Text(
-                          selectedNames.length <= 3
-                              ? selectedNames.join(', ')
-                              : '${selectedNames.take(2).join(', ')} +${selectedNames.length - 2}',
-                          style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(
-                                color: Colors.indigoAccent,
-                                fontWeight: FontWeight.w500,
-                              ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ],
-                  ),
-                )
-              else
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 8,
-                  ),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.white10),
-                    color: Colors.white.withValues(alpha: 0.03),
-                  ),
-                child: Text(
-                  'No scenes selected',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context)
-                            .colorScheme
-                            .onSurface
-                            .withValues(alpha: 0.45),
-                      ),
-                ),
-                ),
-              const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: _localSelectedIds.isEmpty || _isSubmitting
-                      ? null
-                      : _handleApply,
-                  style: ButtonStyle(
-                    backgroundColor:
-                        WidgetStateProperty.resolveWith((states) {
-                      const base = Colors.indigoAccent;
-                      if (states.contains(WidgetState.disabled)) {
-                        return base.withValues(alpha: 0.35);
-                      }
-                      return base;
-                    }),
-                    foregroundColor:
-                        WidgetStateProperty.all<Color>(Colors.white),
-                    padding: WidgetStateProperty.all(
-                      const EdgeInsets.symmetric(vertical: 14),
-                    ),
-                    shape: WidgetStateProperty.all(
-                      RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                    ),
-                    textStyle: WidgetStateProperty.all(
-                      const TextStyle(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 15,
-                      ),
-                    ),
-                  ),
-                  child: _isSubmitting
-                      ? const SizedBox(
-                          height: 20,
-                          width: 20,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor:
-                                AlwaysStoppedAnimation<Color>(Colors.white),
-                          ),
-                        )
-                      : const Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.check_circle_outline, size: 20),
-                            SizedBox(width: 8),
-                            Text('Done'),
-                          ],
-                        ),
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -325,18 +313,19 @@ class _SceneOption extends StatelessWidget {
     final isDark = theme.brightness == Brightness.dark;
     final gradientColors = isSelected
         ? (isDark
-            ? preset.gradient
-            : preset.gradient
-                .map((color) => Color.lerp(color, Colors.white, 0.4)!)
-                .toList())
+              ? preset.gradient
+              : preset.gradient
+                    .map((color) => Color.lerp(color, Colors.white, 0.4)!)
+                    .toList())
         : isDark
-            ? const [Color(0xFF111828), Color(0xFF0B1120)]
-            : [
-                theme.colorScheme.surface,
-                theme.colorScheme.surface.withValues(alpha: 0.85),
-              ];
-    final titleColor =
-        (isSelected || isDark) ? Colors.white : theme.colorScheme.onSurface;
+        ? const [Color(0xFF111828), Color(0xFF0B1120)]
+        : [
+            theme.colorScheme.surface,
+            theme.colorScheme.surface.withValues(alpha: 0.85),
+          ];
+    final titleColor = (isSelected || isDark)
+        ? Colors.white
+        : theme.colorScheme.onSurface;
     final subtitleColor = titleColor.withValues(alpha: 0.75);
     final borderColor = isSelected
         ? Colors.indigoAccent
@@ -344,8 +333,9 @@ class _SceneOption extends StatelessWidget {
     final iconBg = (isSelected || isDark)
         ? Colors.black.withValues(alpha: 0.25)
         : theme.colorScheme.primary.withValues(alpha: 0.08);
-    final iconColor =
-        (isSelected || isDark) ? Colors.white : theme.colorScheme.onSurface;
+    final iconColor = (isSelected || isDark)
+        ? Colors.white
+        : theme.colorScheme.onSurface;
 
     return GestureDetector(
       onTap: onTap,
@@ -354,10 +344,7 @@ class _SceneOption extends StatelessWidget {
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: borderColor,
-            width: isSelected ? 2 : 1,
-          ),
+          border: Border.all(color: borderColor, width: isSelected ? 2 : 1),
           gradient: LinearGradient(
             colors: gradientColors,
             begin: Alignment.topLeft,
