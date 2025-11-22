@@ -47,6 +47,7 @@ class UploadController extends StateNotifier<UploadState> {
 
   final ImagePicker _picker;
   final StorageService _storageService;
+  bool _cancelRequested = false;
 
   Future<bool> pickAndUpload(String uid, {ImageSource source = ImageSource.gallery}) async {
     try {
@@ -60,6 +61,7 @@ class UploadController extends StateNotifier<UploadState> {
       }
 
       final file = File(picked.path);
+      _cancelRequested = false;
       state = state.copyWith(
         localFile: file,
         isUploading: true,
@@ -71,6 +73,10 @@ class UploadController extends StateNotifier<UploadState> {
         file: file,
       );
 
+      if (_cancelRequested) {
+        return false;
+      }
+
       state = state.copyWith(
         downloadUrl: result.downloadUrl,
         storagePath: result.path,
@@ -81,6 +87,12 @@ class UploadController extends StateNotifier<UploadState> {
       state = state.copyWith(isUploading: false, error: error.toString());
       rethrow;
     }
+  }
+
+  void cancelUpload() {
+    if (!state.isUploading) return;
+    _cancelRequested = true;
+    state = state.copyWith(isUploading: false);
   }
 
   void clearError() {

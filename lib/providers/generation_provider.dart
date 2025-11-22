@@ -46,6 +46,8 @@ class GenerationController extends StateNotifier<GenerationState> {
     : super(GenerationState.initial());
 
   final CloudFunctionsService _cloudFunctionsService;
+  bool _cancelRequested = false;
+  int _activeRequestId = 0;
 
   Future<List<GeneratedImage>> generateMultipleVariants({
     required String uid,
@@ -53,11 +55,16 @@ class GenerationController extends StateNotifier<GenerationState> {
     required String imageUrl,
     required List<String> stylePrompts,
   }) async {
+    final requestId = ++_activeRequestId;
+    _cancelRequested = false;
     state = state.copyWith(isGenerating: true, error: null);
     final List<GeneratedImage> results = [];
 
     try {
       for (int i = 0; i < stylePrompts.length; i++) {
+        if (_cancelRequested || requestId != _activeRequestId) {
+          break;
+        }
         final prompt = stylePrompts[i];
         final response = await _cloudFunctionsService.generateProfilePicture(
           imageUrl: imageUrl,
@@ -81,6 +88,12 @@ class GenerationController extends StateNotifier<GenerationState> {
       state = state.copyWith(isGenerating: false, error: error.toString());
       rethrow;
     }
+  }
+
+  void cancelGeneration() {
+    if (!state.isGenerating) return;
+    _cancelRequested = true;
+    state = state.copyWith(isGenerating: false);
   }
 
   void clearError() {

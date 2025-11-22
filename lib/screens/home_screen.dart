@@ -8,12 +8,14 @@ import 'package:http/http.dart' as http;
 
 import '../providers/auth_providers.dart';
 import '../providers/generation_provider.dart';
+import '../providers/theme_mode_provider.dart';
 import '../providers/upload_provider.dart';
 import '../widgets/loading_overlay.dart';
 import '../widgets/primary_button.dart';
 import '../widgets/image_source_modal.dart';
 import '../widgets/scene_selection_modal.dart';
 import '../widgets/history_modal.dart';
+import '../widgets/glass_container.dart';
 import '../data/scene_presets.dart';
 import '../services/image_service.dart';
 
@@ -55,6 +57,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     final uploadState = ref.watch(uploadControllerProvider);
     final generationState = ref.watch(generationControllerProvider);
     final ensureAuth = ref.watch(ensureAuthProvider);
+    final selectedCount = _selectedSceneIds.length;
+    final isProcessing =
+        uploadState.isUploading || generationState.isGenerating;
+    final processingMessage = generationState.isGenerating
+        ? 'Generating $selectedCount look${selectedCount == 1 ? '' : 's'}'
+        : 'Uploading photo...';
 
     ref.listen(uploadControllerProvider, (previous, next) {
       if (next.localFile != null && next.localFile != previous?.localFile) {
@@ -65,6 +73,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         }
       }
     });
+
+    final currentError = uploadState.error ?? generationState.error;
+    if (currentError != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _showErrorDialog(context, currentError);
+        ref.read(uploadControllerProvider.notifier).clearError();
+        ref.read(generationControllerProvider.notifier).clearError();
+      });
+    }
 
     final canPop = _fullScreenImageUrl == null && !_showGeneratedImages;
 
@@ -87,222 +105,149 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           return;
         }
       },
-      child: Stack(
-        children: [
-          Scaffold(
-            appBar: AppBar(
-              title: const Text(
-                'AI Picture',
-                style: TextStyle(
-                  fontFamily: 'Roboto',
-                  fontWeight: FontWeight.w300,
-                  letterSpacing: 1.2,
+      child: LoadingOverlay(
+        isLoading: isProcessing,
+        message: processingMessage,
+        onCancel: isProcessing ? _handleCancelLoading : null,
+        child: Stack(
+          children: [
+            const _LiquidAuroraBackground(),
+            Scaffold(
+              backgroundColor: Colors.transparent,
+              extendBody: true,
+              appBar: AppBar(
+                titleSpacing: 16,
+                title: Text(
+                  'AI Picture',
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
                 ),
+                actions: const [
+                  Padding(
+                    padding: EdgeInsets.only(right: 16),
+                    child: _ThemeToggleButton(),
+                  ),
+                ],
+              ),
+              body: ensureAuth.when(
+                loading: () => const Center(child: CircularProgressIndicator()),
+                error: (err, _) =>
+                    Center(child: Text('Authentication error: $err')),
+                data: (user) {
+                  return SafeArea(
+                    child: Stack(
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(20, 12, 20, 120),
+                          child: LayoutBuilder(
+                            builder: (context, constraints) {
+                              final isWide = constraints.maxWidth >= 960;
+                              final preview = _PreviewPanel(
+                                uploadState: uploadState,
+                                generationState: generationState,
+                                selectedSceneIds: _selectedSceneIds,
+                                showGeneratedImages: _showGeneratedImages,
+                                onToggleView: () {
+                                  setState(() {
+                                    _showGeneratedImages =
+                                        !_showGeneratedImages;
+                                  });
+                                },
+                                onChangePhoto: () =>
+                                    _showImageSourceDialog(context, user.uid),
+                                onGenerate: () => _onGeneratePressed(
+                                  uid: user.uid,
+                                  hasExistingImages: generationState
+                                      .generatedImages
+                                      .isNotEmpty,
+                                ),
+                                onImageTap: (imageUrl) {
+                                  final generationState = ref.read(
+                                    generationControllerProvider,
+                                  );
+                                  final imageUrls = generationState
+                                      .generatedImages
+                                      .map((img) => img.imageUrl)
+                                      .toList();
+                                  final index = imageUrls.indexOf(imageUrl);
+                                  setState(() {
+                                    _fullScreenImageUrl = imageUrl;
+                                    _fullScreenImageIndex =
+                                        index >= 0 ? index : 0;
+                                  });
+                                },
+                                onEditScenes: () =>
+                                    _showSceneSelectionModal(context),
+                                transitionController: _transitionController,
+                              );
+
+                              return Align(
+                                alignment: Alignment.topCenter,
+                                child: ConstrainedBox(
+                                  constraints: BoxConstraints(
+                                    maxWidth: isWide ? 1100 : double.infinity,
+                                  ),
+                                  child: preview,
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                        Positioned(
+                          left: 0,
+                          right: 0,
+                          bottom: 0,
+                          child: _BottomOverlay(
+                            child: _BottomActionBar(
+                              onHistory: () => _openHistoryModal(context),
+                              onUpload: () =>
+                                  _showImageSourceDialog(context, user.uid),
+                              onScenes: () =>
+                                  _showSceneSelectionModal(context),
+                              hasScenesSelected: _selectedSceneIds.isNotEmpty,
+                              hasGeneratedImages:
+                                  generationState.generatedImages.isNotEmpty,
+                              isUploading: uploadState.isUploading,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
               ),
             ),
-            body: ensureAuth.when(
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (err, _) =>
-                  Center(child: Text('Authentication error: $err')),
-              data: (user) {
-                final isLoading =
-                    uploadState.isUploading || generationState.isGenerating;
-                final selectedCount = _selectedSceneIds.length;
-                final overlayMessage = generationState.isGenerating
-                    ? 'Generating $selectedCount image${selectedCount > 1 ? 's' : ''}...'
-                    : 'Uploading photo...';
-
-                return LoadingOverlay(
-                  isLoading: isLoading,
-                  message: overlayMessage,
-                  child: SafeArea(
-                    child: Padding(
-                      padding: const EdgeInsets.all(20),
-                      child: LayoutBuilder(
-                        builder: (context, constraints) {
-                          final isWide = constraints.maxWidth >= 960;
-                          final hasGeneratedImages =
-                              generationState.generatedImages.isNotEmpty;
-
-                          if (isWide) {
-                            return Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Expanded(
-                                  flex: 5,
-                                  child: _PreviewPanel(
-                                    uploadState: uploadState,
-                                    generationState: generationState,
-                                    showGeneratedImages: _showGeneratedImages,
-                                    onToggleView: () {
-                                      setState(() {
-                                        _showGeneratedImages =
-                                            !_showGeneratedImages;
-                                      });
-                                    },
-                                    onChangePhoto: () => _showImageSourceDialog(
-                                      context,
-                                      user.uid,
-                                    ),
-                                    onImageTap: (imageUrl) {
-                                      final generationState = ref.read(
-                                        generationControllerProvider,
-                                      );
-                                      final imageUrls = generationState
-                                          .generatedImages
-                                          .map((img) => img.imageUrl)
-                                          .toList();
-                                      final index = imageUrls.indexOf(imageUrl);
-                                      setState(() {
-                                        _fullScreenImageUrl = imageUrl;
-                                        _fullScreenImageIndex = index >= 0
-                                            ? index
-                                            : 0;
-                                      });
-                                    },
-                                    transitionController: _transitionController,
-                                  ),
-                                ),
-                                const SizedBox(width: 24),
-                                Expanded(
-                                  flex: 4,
-                                  child: _GeneratePanel(
-                                    selectedSceneIds: _selectedSceneIds,
-                                    onOpenSceneModal: () =>
-                                        _showSceneSelectionModal(context),
-                                    onGenerate: () => _onGeneratePressed(
-                                      uid: user.uid,
-                                      hasExistingImages: generationState
-                                          .generatedImages
-                                          .isNotEmpty,
-                                    ),
-                                    uploadState: uploadState,
-                                    generationState: generationState,
-                                    clearErrors: () {
-                                      ref
-                                          .read(
-                                            uploadControllerProvider.notifier,
-                                          )
-                                          .clearError();
-                                      ref
-                                          .read(
-                                            generationControllerProvider
-                                                .notifier,
-                                          )
-                                          .clearError();
-                                    },
-                                    onShowError: (error) =>
-                                        _showErrorDialog(context, error),
-                                  ),
-                                ),
-                              ],
-                            );
-                          }
-
-                          // Mobile: Single column, no scroll on main page
-                          return Column(
-                            children: [
-                              Expanded(
-                                flex: hasGeneratedImages ? 6 : 5,
-                                child: _PreviewPanel(
-                                  uploadState: uploadState,
-                                  generationState: generationState,
-                                  showGeneratedImages: _showGeneratedImages,
-                                  onToggleView: () {
-                                    setState(() {
-                                      _showGeneratedImages =
-                                          !_showGeneratedImages;
-                                    });
-                                  },
-                                  onChangePhoto: () =>
-                                      _showImageSourceDialog(context, user.uid),
-                                  onImageTap: (imageUrl) {
-                                    final generationState = ref.read(
-                                      generationControllerProvider,
-                                    );
-                                    final imageUrls = generationState
-                                        .generatedImages
-                                        .map((img) => img.imageUrl)
-                                        .toList();
-                                    final index = imageUrls.indexOf(imageUrl);
-                                    setState(() {
-                                      _fullScreenImageUrl = imageUrl;
-                                      _fullScreenImageIndex = index >= 0
-                                          ? index
-                                          : 0;
-                                    });
-                                  },
-                                  transitionController: _transitionController,
-                                ),
-                              ),
-                              const SizedBox(height: 16),
-                              Expanded(
-                                flex: hasGeneratedImages ? 4 : 5,
-                                child: _GeneratePanel(
-                                  selectedSceneIds: _selectedSceneIds,
-                                  onOpenSceneModal: () =>
-                                      _showSceneSelectionModal(context),
-                                  onGenerate: () => _onGeneratePressed(
-                                    uid: user.uid,
-                                    hasExistingImages: generationState
-                                        .generatedImages
-                                        .isNotEmpty,
-                                  ),
-                                  uploadState: uploadState,
-                                  generationState: generationState,
-                                  clearErrors: () {
-                                    ref
-                                        .read(uploadControllerProvider.notifier)
-                                        .clearError();
-                                    ref
-                                        .read(
-                                          generationControllerProvider.notifier,
-                                        )
-                                        .clearError();
-                                  },
-                                  onShowError: (error) =>
-                                      _showErrorDialog(context, error),
-                                ),
-                              ),
-                            ],
-                          );
-                        },
-                      ),
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-          if (_fullScreenImageUrl != null)
-            Builder(
-              builder: (context) {
-                final generationState = ref.watch(generationControllerProvider);
-                final imageUrls = generationState.generatedImages
-                    .map((img) => img.imageUrl)
-                    .toList();
-                return _FullScreenImageOverlay(
-                  imageUrls: imageUrls.isNotEmpty
-                      ? imageUrls
-                      : [_fullScreenImageUrl!],
-                  initialIndex: _fullScreenImageIndex,
-                  onClose: () {
-                    setState(() {
-                      _fullScreenImageUrl = null;
-                    });
-                  },
-                  onIndexChanged: (index) {
-                    setState(() {
-                      _fullScreenImageIndex = index;
-                      if (imageUrls.isNotEmpty && index < imageUrls.length) {
-                        _fullScreenImageUrl = imageUrls[index];
-                      }
-                    });
-                  },
-                );
-              },
-            ),
-        ],
+            if (_fullScreenImageUrl != null)
+              Builder(
+                builder: (context) {
+                  final generationState = ref.watch(generationControllerProvider);
+                  final imageUrls = generationState.generatedImages
+                      .map((img) => img.imageUrl)
+                      .toList();
+                  return _FullScreenImageOverlay(
+                    imageUrls: imageUrls.isNotEmpty
+                        ? imageUrls
+                        : [_fullScreenImageUrl!],
+                    initialIndex: _fullScreenImageIndex,
+                    onClose: () {
+                      setState(() {
+                        _fullScreenImageUrl = null;
+                      });
+                    },
+                    onIndexChanged: (index) {
+                      setState(() {
+                        _fullScreenImageIndex = index;
+                        if (imageUrls.isNotEmpty && index < imageUrls.length) {
+                          _fullScreenImageUrl = imageUrls[index];
+                        }
+                      });
+                    },
+                  );
+                },
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -385,6 +330,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     );
   }
 
+  void _openHistoryModal(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withValues(alpha: 0.65),
+      isScrollControlled: true,
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.85,
+        minChildSize: 0.5,
+        maxChildSize: 0.95,
+        builder: (context, scrollController) => const HistoryModal(),
+      ),
+    );
+  }
+
   void _showImageSourceDialog(BuildContext context, String uid) {
     showModalBottomSheet(
       context: context,
@@ -427,10 +387,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         .toList();
 
     final stylePrompts = selectedPresets.map((preset) {
-      return 'Generate a photorealistic portrait variation that preserves the subject’s unique facial identity, skin tone, and natural hair color/texture while allowing scene-appropriate adjustments to expression, pose, wardrobe, and accessories.'
-          ' Hair may be clipped, styled, or accessorized to match the scene, but the underlying hair color, length, and texture must remain authentic (no artificial recoloring or drastic changes). '
+      return 'Generate a natural-looking portrait that could plausibly come from a recent smartphone photo. Preserve the subject’s unique facial identity, complexion, and natural hair color/texture, but allow expression, pose, wardrobe, accessories, and color palette to adapt organically to the environment so the person blends into the scene (e.g., swap jackets, shirts, or lighting to match the location). '
+          'Avoid studio-perfect retouching or repeating the same outfit across scenes—each render should feel candid yet flattering with cohesive lighting, believable shadows, and realistic textures. '
           '${preset.prompt} '
-          'Eliminate any watermark, logo, or text artifacts, and if the input is a screenshot remove all system UI (status bars, navigation buttons, etc.) before finalizing the scene. Ensure cohesive lighting, realistic shadows, and natural textures throughout.';
+          'Remove any watermark, logo, or system UI from the source image before finalizing.';
     }).toList();
 
     try {
@@ -475,6 +435,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           ),
         ) ??
         false;
+  }
+
+  void _handleCancelLoading() {
+    final uploadState = ref.read(uploadControllerProvider);
+    final generationState = ref.read(generationControllerProvider);
+    if (uploadState.isUploading) {
+      ref.read(uploadControllerProvider.notifier).cancelUpload();
+      Fluttertoast.showToast(msg: 'Upload canceled');
+    }
+    if (generationState.isGenerating) {
+      ref.read(generationControllerProvider.notifier).cancelGeneration();
+      Fluttertoast.showToast(msg: 'Generation canceled');
+    }
   }
 }
 
@@ -614,10 +587,15 @@ class _FullScreenImageOverlayState extends State<_FullScreenImageOverlay>
       final centerX = screenSize.width / 2;
       final centerY = screenSize.height / 2;
 
-      targetMatrix = Matrix4.identity()
-        ..translate(centerX, centerY)
-        ..scale(scale)
-        ..translate(-focalPoint.dx, -focalPoint.dy);
+      final translateToCenter =
+          Matrix4.translationValues(centerX, centerY, 0);
+      final scaleMatrix = Matrix4.diagonal3Values(scale, scale, 1);
+      final translateToFocal =
+          Matrix4.translationValues(-focalPoint.dx, -focalPoint.dy, 0);
+
+      targetMatrix = translateToCenter
+        ..multiply(scaleMatrix)
+        ..multiply(translateToFocal);
     }
 
     final currentValue = Matrix4.copy(controller.value);
@@ -670,57 +648,71 @@ class _FullScreenImageOverlayState extends State<_FullScreenImageOverlay>
                 physics: _isZoomed
                     ? const NeverScrollableScrollPhysics()
                     : const PageScrollPhysics(),
+                clipBehavior: Clip.none,
                 itemCount: widget.imageUrls.length,
                 itemBuilder: (context, index) {
                   final controller = _transformationControllers[index];
                   final isZoomed = _isZoomedStates[index];
-                  return GestureDetector(
-                    onDoubleTapDown: (details) =>
-                        _handleDoubleTap(details, index),
-                    child: InteractiveViewer(
-                      transformationController: controller,
-                      minScale: 1.0,
-                      maxScale: 4.0,
-                      boundaryMargin: EdgeInsets.zero,
-                      child: AnimatedBuilder(
-                        animation: controller,
-                        builder: (context, child) {
-                          return Container(
-                            decoration: BoxDecoration(
-                              border: isZoomed
-                                  ? Border.all(
-                                      color: Colors.white.withValues(
-                                        alpha: 0.3,
-                                      ),
-                                      width: 2,
-                                    )
-                                  : null,
-                              borderRadius: isZoomed
-                                  ? BorderRadius.circular(8)
-                                  : null,
-                            ),
-                            child: ClipRRect(
-                              borderRadius: isZoomed
-                                  ? BorderRadius.circular(8)
-                                  : BorderRadius.zero,
-                              child: CachedNetworkImage(
-                                imageUrl: widget.imageUrls[index],
-                                fit: BoxFit.contain,
-                                placeholder: (context, url) => const Center(
-                                  child: CircularProgressIndicator(),
+                  return LayoutBuilder(
+                    builder: (context, constraints) {
+                      final viewer = GestureDetector(
+                        onDoubleTapDown: (details) =>
+                            _handleDoubleTap(details, index),
+                        child: InteractiveViewer(
+                          transformationController: controller,
+                          minScale: 1.0,
+                          maxScale: 4.0,
+                          boundaryMargin: EdgeInsets.zero,
+                          clipBehavior: Clip.hardEdge,
+                          child: AnimatedBuilder(
+                            animation: controller,
+                            builder: (context, child) {
+                              return Container(
+                                decoration: BoxDecoration(
+                                  border: isZoomed
+                                      ? Border.all(
+                                          color: Colors.white.withValues(
+                                            alpha: 0.3,
+                                          ),
+                                          width: 2,
+                                        )
+                                      : null,
+                                  borderRadius: isZoomed
+                                      ? BorderRadius.circular(8)
+                                      : null,
                                 ),
-                                errorWidget: (context, url, error) =>
-                                    const Icon(
-                                      Icons.error,
-                                      size: 40,
-                                      color: Colors.white,
+                                child: ClipRRect(
+                                  borderRadius: isZoomed
+                                      ? BorderRadius.circular(8)
+                                      : BorderRadius.zero,
+                                  child: CachedNetworkImage(
+                                    imageUrl: widget.imageUrls[index],
+                                    fit: BoxFit.contain,
+                                    placeholder: (context, url) => const Center(
+                                      child: CircularProgressIndicator(),
                                     ),
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                    ),
+                                    errorWidget: (context, url, error) =>
+                                        const Icon(
+                                          Icons.error,
+                                          size: 40,
+                                          color: Colors.white,
+                                        ),
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                      );
+                      return OverflowBox(
+                        minWidth: constraints.maxWidth + 24,
+                        maxWidth: constraints.maxWidth + 24,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          child: viewer,
+                        ),
+                      );
+                    },
                   );
                 },
               ),
@@ -789,172 +781,163 @@ class _PreviewPanel extends ConsumerWidget {
   const _PreviewPanel({
     required this.uploadState,
     required this.generationState,
+    required this.selectedSceneIds,
     required this.showGeneratedImages,
     required this.onToggleView,
     required this.onChangePhoto,
+    required this.onGenerate,
     required this.onImageTap,
+    required this.onEditScenes,
     required this.transitionController,
   });
 
   final UploadState uploadState;
   final GenerationState generationState;
+  final Set<String> selectedSceneIds;
   final bool showGeneratedImages;
   final VoidCallback onToggleView;
   final VoidCallback onChangePhoto;
+  final VoidCallback onGenerate;
   final ValueChanged<String> onImageTap;
+  final VoidCallback onEditScenes;
   final AnimationController transitionController;
+
+  bool get _hasGeneratedImages => generationState.generatedImages.isNotEmpty;
+  bool get _shouldShowGenerated => _hasGeneratedImages && showGeneratedImages;
+
+  bool get _canGenerate =>
+      uploadState.downloadUrl != null &&
+      selectedSceneIds.isNotEmpty &&
+      !generationState.isGenerating &&
+      !uploadState.isUploading;
+
+  String get _generateLabel {
+    if (uploadState.isUploading) return 'Uploading photo...';
+    if (generationState.isGenerating) return 'Crafting looks...';
+    if (uploadState.downloadUrl == null) return 'Upload photo first';
+    if (selectedSceneIds.isEmpty) return 'Select scenes to continue';
+    return 'Generate ${selectedSceneIds.length} look${selectedSceneIds.length > 1 ? 's' : ''}';
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final hasGeneratedImages = generationState.generatedImages.isNotEmpty;
-    final shouldShowGenerated = hasGeneratedImages && showGeneratedImages;
-
-    return Card(
-      margin: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            if (shouldShowGenerated) ...[
-              Expanded(
-                child: AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 600),
-                  transitionBuilder: (child, animation) {
-                    return FadeTransition(
-                      opacity: animation,
-                      child: SlideTransition(
-                        position:
-                            Tween<Offset>(
-                              begin: const Offset(0, 0.1),
-                              end: Offset.zero,
-                            ).animate(
-                              CurvedAnimation(
-                                parent: animation,
-                                curve: Curves.easeOutCubic,
-                              ),
-                            ),
-                        child: child,
-                      ),
-                    );
-                  },
-                  child: _GeneratedImagesGrid(
-                    key: ValueKey(generationState.generatedImages.length),
-                    images: generationState.generatedImages,
-                    onImageTap: onImageTap,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: PrimaryButton(
-                      label: 'Download All',
-                      icon: Icons.download_outlined,
-                      onPressed: () => _downloadAllImages(context),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Material(
-                    color: Colors.indigoAccent,
-                    borderRadius: BorderRadius.circular(12),
-                    child: InkWell(
-                      onTap: onToggleView,
-                      borderRadius: BorderRadius.circular(12),
-                      child: Container(
-                        width: 48,
-                        height: 48,
-                        alignment: Alignment.center,
-                        child: const Icon(
-                          Icons.image_outlined,
-                          color: Colors.white,
-                          size: 24,
-                        ),
+    return GlassContainer(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _buildHeader(context),
+          const SizedBox(height: 16),
+          SizedBox(
+            height: _shouldShowGenerated ? 300 : 230,
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 600),
+              transitionBuilder: (child, animation) {
+                return FadeTransition(
+                  opacity: animation,
+                  child: ScaleTransition(
+                    scale: Tween<double>(begin: 0.92, end: 1.0).animate(
+                      CurvedAnimation(
+                        parent: animation,
+                        curve: Curves.easeOutCubic,
                       ),
                     ),
+                    child: child,
                   ),
-                ],
-              ),
-              const SizedBox(height: 12),
+                );
+              },
+              child: _shouldShowGenerated
+                  ? _GeneratedImagesGrid(
+                      key: ValueKey(generationState.generatedImages.length),
+                      images: generationState.generatedImages,
+                      onImageTap: onImageTap,
+                    )
+                  : _ImagePreview(
+                      key: ValueKey(uploadState.localFile?.path ?? 'empty'),
+                      uploadState: uploadState,
+                      onTap: onChangePhoto,
+                    ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          if (_shouldShowGenerated) ...[
+            _GeneratedActionsRow(
+              onToggleView: onToggleView,
+              onRegenerate: onGenerate,
+              canRegenerate: _canGenerate,
+              onDownloadAll: (context) => _downloadAllImages(context),
+            ),
+            const SizedBox(height: 12),
+            _SelectedScenesSummary(
+              selectedSceneIds: selectedSceneIds,
+              onTap: onEditScenes,
+            ),
+          ] else ...[
+            if (uploadState.downloadUrl != null) ...[
               PrimaryButton(
-                label: 'Upload New Photo',
-                icon: Icons.add_a_photo_outlined,
-                onPressed: onChangePhoto,
-              ),
-            ] else ...[
-              Expanded(
-                child: AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 600),
-                  transitionBuilder: (child, animation) {
-                    return FadeTransition(
-                      opacity: animation,
-                      child: ScaleTransition(
-                        scale: Tween<double>(begin: 0.9, end: 1.0).animate(
-                          CurvedAnimation(
-                            parent: animation,
-                            curve: Curves.easeOutCubic,
-                          ),
-                        ),
-                        child: child,
-                      ),
-                    );
-                  },
-                  child: _ImagePreview(
-                    key: ValueKey(uploadState.localFile?.path ?? 'empty'),
-                    uploadState: uploadState,
-                    onTap: onChangePhoto,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 20),
-              Row(
-                children: [
-                  Expanded(
-                    child: PrimaryButton(
-                      label: uploadState.localFile == null
-                          ? 'Upload Photo'
-                          : 'Replace Photo',
-                      icon: Icons.add_a_photo_outlined,
-                      isLoading: uploadState.isUploading,
-                      onPressed: uploadState.isUploading ? null : onChangePhoto,
-                    ),
-                  ),
-                  if (hasGeneratedImages) ...[
-                    const SizedBox(width: 12),
-                    Material(
-                      color: Colors.indigoAccent,
-                      borderRadius: BorderRadius.circular(12),
-                      child: InkWell(
-                        onTap: onToggleView,
-                        borderRadius: BorderRadius.circular(12),
-                        child: Container(
-                          width: 48,
-                          height: 48,
-                          alignment: Alignment.center,
-                          child: const Icon(
-                            Icons.collections_outlined,
-                            color: Colors.white,
-                            size: 24,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ],
+                label: _generateLabel,
+                icon: Icons.auto_awesome,
+                onPressed: _canGenerate ? onGenerate : null,
               ),
               const SizedBox(height: 12),
-              Text(
-                'Use one well-lit portrait, then select scenes to generate.',
-                textAlign: TextAlign.center,
-                style: Theme.of(
-                  context,
-                ).textTheme.bodySmall?.copyWith(color: Colors.white70),
-              ),
             ],
+            _SelectedScenesSummary(
+              selectedSceneIds: selectedSceneIds,
+              onTap: onEditScenes,
+            ),
+            const SizedBox(height: 12),
+            if (uploadState.downloadUrl == null)
+              Text(
+                'Tap the portrait workspace or use the Upload button below to begin.',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurface
+                          .withValues(alpha: 0.65),
+                    ),
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHeader(BuildContext context) {
+    return Row(
+      children: [
+      Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              _shouldShowGenerated ? 'Generated looks' : 'Portrait workspace',
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+            ),
+            Text(
+              _shouldShowGenerated
+                  ? 'Swipe to inspect, double-tap to zoom in.'
+                  : 'Upload a crisp portrait to begin.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withValues(alpha: 0.6),
+                  ),
+            ),
           ],
         ),
       ),
+        if (_hasGeneratedImages)
+          _GlassIconButton(
+            icon: _shouldShowGenerated
+                ? Icons.close_fullscreen
+                : Icons.collections_outlined,
+            tooltip: _shouldShowGenerated ? 'Back to preview' : 'View results',
+            onTap: onToggleView,
+          ),
+      ],
     );
   }
 
@@ -972,6 +955,48 @@ class _PreviewPanel extends ConsumerWidget {
             : 'Saved $successCount of ${images.length} images.',
       );
     }
+  }
+}
+
+class _GeneratedActionsRow extends StatelessWidget {
+  const _GeneratedActionsRow({
+    required this.onToggleView,
+    required this.onRegenerate,
+    required this.canRegenerate,
+    required this.onDownloadAll,
+  });
+
+  final VoidCallback onToggleView;
+  final VoidCallback onRegenerate;
+  final bool canRegenerate;
+  final Future<void> Function(BuildContext) onDownloadAll;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: PrimaryButton(
+                label: 'Download all',
+                icon: Icons.download_outlined,
+                onPressed: () => onDownloadAll(context),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: PrimaryButton(
+                label: 'Regenerate',
+                icon: Icons.auto_awesome,
+                onPressed: canRegenerate ? onRegenerate : null,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
   }
 }
 
@@ -1030,6 +1055,7 @@ class _GeneratedImageCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
+      behavior: HitTestBehavior.opaque,
       onTap: onTap,
       child: ClipRRect(
         borderRadius: BorderRadius.circular(16),
@@ -1127,55 +1153,347 @@ class _ImagePreview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(24),
-        splashColor: Colors.indigo.withValues(alpha: 0.2),
-        child: Ink(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(24),
-            gradient: const LinearGradient(
-              colors: [Color(0xFF1E293B), Color(0xFF020617)],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
+    final colorScheme = Theme.of(context).colorScheme;
+    final gradientColors = Theme.of(context).brightness == Brightness.dark
+        ? const [Color(0xFF1E293B), Color(0xFF020617)]
+        : [
+            colorScheme.surface,
+            colorScheme.surface.withValues(alpha: 0.8),
+          ];
+    final textColor = colorScheme.onSurface;
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(24),
+      child: Ink(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(24),
+          gradient: LinearGradient(
+            colors: gradientColors,
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(24),
+          child: uploadState.localFile != null
+              ? Image.file(uploadState.localFile!, fit: BoxFit.cover)
+              : Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.image_outlined,
+                      size: 80,
+                      color: textColor.withValues(alpha: 0.35),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Upload a portrait photo to begin',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            color: textColor,
+                            fontWeight: FontWeight.w600,
+                          ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 8),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: Text(
+                        'Front-facing, good lighting, minimal background.',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: textColor.withValues(alpha: 0.7),
+                            ),
+                        textAlign: TextAlign.center,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SelectedScenesSummary extends StatelessWidget {
+  const _SelectedScenesSummary({
+    required this.selectedSceneIds,
+    required this.onTap,
+  });
+
+  final Set<String> selectedSceneIds;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final selectedPresetsList = scenePresets
+        .where((preset) => selectedSceneIds.contains(preset.id))
+        .toList();
+    final colorScheme = Theme.of(context).colorScheme;
+    final subtitle = selectedPresetsList.isEmpty
+        ? 'Tap to add up to 10 moods'
+        : selectedPresetsList.take(3).map((p) => p.title).join(', ');
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(20),
+      onTap: onTap,
+      child: Container(
+        height: 60,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(20),
+          color: colorScheme.primary.withValues(alpha: 0.08),
+          border: Border.all(
+            color: colorScheme.primary.withValues(alpha: 0.25),
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.palette_outlined,
+                color: colorScheme.primary, size: 22),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    '${selectedSceneIds.length} scene${selectedSceneIds.length == 1 ? '' : 's'} selected',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+                  Text(
+                    subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color:
+                              colorScheme.onSurface.withValues(alpha: 0.6),
+                        ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            const Icon(Icons.chevron_right_rounded, size: 20),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _GlassIconButton extends StatelessWidget {
+  const _GlassIconButton({
+    required this.icon,
+    required this.onTap,
+    this.tooltip,
+  });
+
+  final IconData icon;
+  final VoidCallback onTap;
+  final String? tooltip;
+
+  @override
+  Widget build(BuildContext context) {
+    final button = InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(18),
+      child: GlassContainer(
+        padding: const EdgeInsets.all(12),
+        borderRadius: 18,
+        child: Icon(
+          icon,
+          color: Theme.of(context).colorScheme.onSurface,
+        ),
+      ),
+    );
+
+    if (tooltip == null) {
+      return button;
+    }
+    return Tooltip(
+      message: tooltip!,
+      child: button,
+    );
+  }
+}
+
+class _ThemeToggleButton extends ConsumerWidget {
+  const _ThemeToggleButton();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final mode = ref.watch(themeModeProvider);
+    final controller = ref.read(themeModeProvider.notifier);
+    final entry = switch (mode) {
+      ThemeMode.system => (Icons.auto_awesome, 'Auto'),
+      ThemeMode.light => (Icons.wb_sunny_outlined, 'Light'),
+      ThemeMode.dark => (Icons.nights_stay_outlined, 'Dark'),
+    };
+
+    return GestureDetector(
+      onTap: controller.cycleMode,
+      child: GlassContainer(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        borderRadius: 999,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 250),
+              child: Icon(entry.$1,
+                  key: ValueKey(entry.$1),
+                  size: 18,
+                  color: Theme.of(context).colorScheme.onSurface),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              entry.$2,
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _BottomOverlay extends StatelessWidget {
+  const _BottomOverlay({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final background = Theme.of(context).colorScheme.surface;
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.bottomCenter,
+          end: Alignment.topCenter,
+          colors: [
+            background.withValues(alpha: 0.95),
+            background.withValues(alpha: 0.0),
+          ],
+        ),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 24, 16, 16),
+          child: child,
+        ),
+      ),
+    );
+  }
+}
+
+class _BottomActionBar extends StatelessWidget {
+  const _BottomActionBar({
+    required this.onHistory,
+    required this.onUpload,
+    required this.onScenes,
+    required this.hasScenesSelected,
+    required this.hasGeneratedImages,
+    required this.isUploading,
+  });
+
+  final VoidCallback onHistory;
+  final VoidCallback onUpload;
+  final VoidCallback onScenes;
+  final bool hasScenesSelected;
+  final bool hasGeneratedImages;
+  final bool isUploading;
+
+  @override
+  Widget build(BuildContext context) {
+    return GlassContainer(
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+      borderRadius: 40,
+      child: Row(
+        children: [
+          Expanded(
+            child: _BottomNavButton(
+              icon: Icons.history,
+              label: 'History',
+              onTap: onHistory,
+              isActive: hasGeneratedImages,
             ),
           ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(24),
-            child: uploadState.localFile != null
-                ? Image.file(uploadState.localFile!, fit: BoxFit.cover)
-                : Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.image_outlined,
-                        size: 80,
-                        color: Colors.grey.shade500,
+          const SizedBox(width: 12),
+          Expanded(
+            child: _BottomNavButton(
+              icon: Icons.add_a_photo_outlined,
+              label: isUploading ? 'Uploading' : 'Upload',
+              onTap: isUploading ? null : onUpload,
+              isActive: !isUploading,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: _BottomNavButton(
+              icon: Icons.palette,
+              label: 'Scenes',
+              onTap: onScenes,
+              isActive: hasScenesSelected,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BottomNavButton extends StatelessWidget {
+  const _BottomNavButton({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.isActive = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback? onTap;
+  final bool isActive;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final textColor = isActive
+        ? colorScheme.onSurface
+        : colorScheme.onSurface.withValues(alpha: 0.6);
+
+    return AnimatedOpacity(
+      duration: const Duration(milliseconds: 200),
+      opacity: onTap == null ? 0.4 : 1,
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(24),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(24),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, size: 22, color: textColor),
+                const SizedBox(height: 4),
+                Text(
+                  label,
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                        color: textColor,
+                        fontWeight: FontWeight.w600,
                       ),
-                      const SizedBox(height: 16),
-                      Text(
-                        'Upload a portrait photo to begin',
-                        style: Theme.of(
-                          context,
-                        ).textTheme.titleMedium?.copyWith(color: Colors.white),
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 8),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: Text(
-                          'Front-facing, good lighting, minimal background.',
-                          style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(color: Colors.white70, fontSize: 11),
-                          textAlign: TextAlign.center,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ],
-                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -1183,236 +1501,68 @@ class _ImagePreview extends StatelessWidget {
   }
 }
 
-class _GeneratePanel extends StatelessWidget {
-  const _GeneratePanel({
-    required this.selectedSceneIds,
-    required this.onOpenSceneModal,
-    required this.onGenerate,
-    required this.uploadState,
-    required this.generationState,
-    required this.clearErrors,
-    required this.onShowError,
-  });
-
-  final Set<String> selectedSceneIds;
-  final VoidCallback onOpenSceneModal;
-  final VoidCallback onGenerate;
-  final UploadState uploadState;
-  final GenerationState generationState;
-  final VoidCallback clearErrors;
-  final ValueChanged<String> onShowError;
+class _LiquidAuroraBackground extends StatelessWidget {
+  const _LiquidAuroraBackground();
 
   @override
   Widget build(BuildContext context) {
-    final errorMessage = uploadState.error ?? generationState.error;
-    final selectedCount = selectedSceneIds.length;
-
-    // Show error dialog when error occurs
-    if (errorMessage != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (context.mounted) {
-          onShowError(errorMessage);
-          clearErrors();
-        }
-      });
-    }
-
-    return Card(
-      margin: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return IgnorePointer(
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 500),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: isDark
+                ? const [Color(0xFF01030B), Color(0xFF050A16)]
+                : const [Color(0xFFF8FBFF), Color(0xFFE2E8FF)],
+          ),
+        ),
+        child: Stack(
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Select Scenes',
-                        style: Theme.of(context).textTheme.titleMedium
-                            ?.copyWith(fontWeight: FontWeight.w600),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Choose your scene(s) to generate',
-                        style: Theme.of(
-                          context,
-                        ).textTheme.bodySmall?.copyWith(color: Colors.white70),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Material(
-                  color: Colors.indigoAccent,
-                  borderRadius: BorderRadius.circular(24),
-                  child: InkWell(
-                    onTap: onOpenSceneModal,
-                    borderRadius: BorderRadius.circular(24),
-                    child: Container(
-                      width: 48,
-                      height: 48,
-                      alignment: Alignment.center,
-                      child: Stack(
-                        alignment: Alignment.center,
-                        children: [
-                          const Icon(
-                            Icons.palette_outlined,
-                            color: Colors.white,
-                            size: 24,
-                          ),
-                          if (selectedCount > 0)
-                            Positioned(
-                              top: 4,
-                              right: 4,
-                              child: Container(
-                                width: 16,
-                                height: 16,
-                                decoration: BoxDecoration(
-                                  color: Colors.red,
-                                  shape: BoxShape.circle,
-                                  border: Border.all(
-                                    color: Colors.indigoAccent,
-                                    width: 2,
-                                  ),
-                                ),
-                                child: Center(
-                                  child: Text(
-                                    selectedCount > 9 ? '9+' : '$selectedCount',
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 9,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ],
+            _AuroraBlob(
+              alignment: const Alignment(-0.8, -0.7),
+              diameter: 360,
+              colors: isDark
+                  ? const [Color(0x566B8BFF), Color(0x334F46E5)]
+                  : const [Color(0x446B8BFF), Color(0x2238BDF8)],
             ),
-            const SizedBox(height: 20),
-            if (selectedCount > 0)
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 10,
-                ),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: Colors.indigoAccent.withValues(alpha: 0.3),
-                  ),
-                  color: Colors.indigoAccent.withValues(alpha: 0.1),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      '$selectedCount selected: ',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Colors.indigoAccent,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    Flexible(
-                      child: Text(
-                        scenePresets
-                                .where((p) => selectedSceneIds.contains(p.id))
-                                .take(2)
-                                .map((p) => p.title)
-                                .join(', ') +
-                            (selectedCount > 2 ? ' +${selectedCount - 2}' : ''),
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Colors.indigoAccent,
-                          fontWeight: FontWeight.w500,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ],
-                ),
-              )
-            else
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.white10),
-                  color: Colors.white.withValues(alpha: 0.03),
-                ),
-                child: Text(
-                  'Tap the palette button to select scenes',
-                  textAlign: TextAlign.center,
-                  style: Theme.of(
-                    context,
-                  ).textTheme.bodySmall?.copyWith(color: Colors.white54),
-                ),
-              ),
-            const SizedBox(height: 20),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () {
-                      showModalBottomSheet(
-                        context: context,
-                        backgroundColor: Colors.transparent,
-                        barrierColor: Colors.black.withValues(alpha: 0.65),
-                        isScrollControlled: true,
-                        builder: (context) => DraggableScrollableSheet(
-                          initialChildSize: 0.85,
-                          minChildSize: 0.5,
-                          maxChildSize: 0.95,
-                          builder: (context, scrollController) =>
-                              const HistoryModal(),
-                        ),
-                      );
-                    },
-                    icon: const Icon(Icons.history, size: 20),
-                    label: const Text('History'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.white70,
-                      side: BorderSide(
-                        color: Colors.white.withValues(alpha: 0.2),
-                      ),
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Flexible(
-                  flex: 2,
-                  child: PrimaryButton(
-                    label: uploadState.downloadUrl == null
-                        ? 'Upload photo'
-                        : selectedCount == 0
-                        ? 'Select scenes'
-                        : 'Generate $selectedCount',
-                    icon: Icons.auto_awesome,
-                    isLoading: generationState.isGenerating,
-                    onPressed:
-                        uploadState.downloadUrl == null ||
-                            generationState.isGenerating ||
-                            selectedCount == 0
-                        ? null
-                        : onGenerate,
-                  ),
-                ),
-              ],
+            _AuroraBlob(
+              alignment: const Alignment(0.9, -0.2),
+              diameter: 280,
+              colors: isDark
+                  ? const [Color(0x5534D399), Color(0x5138BDF8)]
+                  : const [Color(0x4434D399), Color(0x2238BDF8)],
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AuroraBlob extends StatelessWidget {
+  const _AuroraBlob({
+    required this.alignment,
+    required this.diameter,
+    required this.colors,
+  });
+
+  final Alignment alignment;
+  final double diameter;
+  final List<Color> colors;
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: alignment,
+      child: Container(
+        width: diameter,
+        height: diameter,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: RadialGradient(colors: colors),
         ),
       ),
     );
@@ -1463,6 +1613,21 @@ class _SceneWarningDialogState extends State<_SceneWarningDialog>
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final panelGradient = LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: isDark
+          ? const [Color(0xFF1E293B), Color(0xFF0F172A)]
+          : [
+              Colors.white,
+              Colors.white.withValues(alpha: 0.92),
+            ],
+    );
+    final onSurface = theme.colorScheme.onSurface;
+    final primary = theme.colorScheme.primary;
+
     return FadeTransition(
       opacity: _fadeAnimation,
       child: ScaleTransition(
@@ -1473,14 +1638,10 @@ class _SceneWarningDialogState extends State<_SceneWarningDialog>
           child: Container(
             constraints: const BoxConstraints(maxWidth: 400),
             decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [Color(0xFF1E293B), Color(0xFF0F172A)],
-              ),
+              gradient: panelGradient,
               borderRadius: BorderRadius.circular(28),
               border: Border.all(
-                color: Colors.indigoAccent.withValues(alpha: 0.3),
+                color: primary.withValues(alpha: isDark ? 0.3 : 0.2),
                 width: 1.5,
               ),
               boxShadow: [
@@ -1524,9 +1685,10 @@ class _SceneWarningDialogState extends State<_SceneWarningDialog>
                   const SizedBox(height: 20),
                   Text(
                     '5 Scenes Selected',
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    style: theme.textTheme.titleLarge?.copyWith(
                       fontWeight: FontWeight.bold,
                       fontSize: 24,
+                      color: onSurface,
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -1534,9 +1696,9 @@ class _SceneWarningDialogState extends State<_SceneWarningDialog>
                     'Generation may take longer with 5+ scenes. You can continue, but expect increased processing time.',
                     textAlign: TextAlign.center,
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: Colors.white70,
-                      height: 1.5,
-                    ),
+                          color: onSurface.withValues(alpha: 0.7),
+                          height: 1.5,
+                        ),
                   ),
                   const SizedBox(height: 28),
                   SizedBox(
@@ -1544,7 +1706,7 @@ class _SceneWarningDialogState extends State<_SceneWarningDialog>
                     child: ElevatedButton(
                       onPressed: _handleContinue,
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.indigoAccent,
+                        backgroundColor: primary,
                         foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         shape: RoundedRectangleBorder(
@@ -1572,7 +1734,7 @@ class _SceneWarningDialogState extends State<_SceneWarningDialog>
                             _dontShowAgain = value ?? false;
                           });
                         },
-                        activeColor: Colors.indigoAccent,
+                        activeColor: primary,
                         checkColor: Colors.white,
                       ),
                       GestureDetector(
@@ -1583,8 +1745,11 @@ class _SceneWarningDialogState extends State<_SceneWarningDialog>
                         },
                         child: Text(
                           'Don\'t show again',
-                          style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(color: Colors.white70, fontSize: 12),
+                          style: theme.textTheme.bodySmall?.copyWith(
+                                color:
+                                    onSurface.withValues(alpha: 0.7),
+                                fontSize: 12,
+                              ),
                         ),
                       ),
                     ],
@@ -1648,6 +1813,21 @@ class _RegenerateWarningDialogState extends State<_RegenerateWarningDialog>
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final onSurface = theme.colorScheme.onSurface;
+    final primary = theme.colorScheme.primary;
+    final panelGradient = LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: isDark
+          ? const [Color(0xFF1E293B), Color(0xFF0F172A)]
+          : [
+              Colors.white,
+              Colors.white.withValues(alpha: 0.92),
+            ],
+    );
+
     return FadeTransition(
       opacity: _fadeAnimation,
       child: ScaleTransition(
@@ -1658,14 +1838,10 @@ class _RegenerateWarningDialogState extends State<_RegenerateWarningDialog>
           child: Container(
             constraints: const BoxConstraints(maxWidth: 400),
             decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [Color(0xFF1E293B), Color(0xFF0F172A)],
-              ),
+              gradient: panelGradient,
               borderRadius: BorderRadius.circular(28),
               border: Border.all(
-                color: Colors.indigoAccent.withValues(alpha: 0.3),
+                color: Colors.indigoAccent.withValues(alpha: isDark ? 0.3 : 0.2),
                 width: 1.5,
               ),
               boxShadow: [
@@ -1707,18 +1883,19 @@ class _RegenerateWarningDialogState extends State<_RegenerateWarningDialog>
                   Text(
                     'Continue Generating?',
                     style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 24,
-                    ),
+                          fontWeight: FontWeight.bold,
+                          fontSize: 24,
+                          color: onSurface,
+                        ),
                   ),
                   const SizedBox(height: 12),
                   Text(
                     'Your recent generated images will be moved to history. Do you want to continue generating new image(s)?',
                     textAlign: TextAlign.center,
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: Colors.white70,
-                      height: 1.5,
-                    ),
+                          color: onSurface.withValues(alpha: 0.7),
+                          height: 1.5,
+                        ),
                   ),
                   const SizedBox(height: 28),
                   Column(
@@ -1733,9 +1910,9 @@ class _RegenerateWarningDialogState extends State<_RegenerateWarningDialog>
                                 widget.onCancel();
                               },
                               style: OutlinedButton.styleFrom(
-                                foregroundColor: Colors.white70,
+                                foregroundColor: onSurface,
                                 side: BorderSide(
-                                  color: Colors.white.withValues(alpha: 0.2),
+                                  color: onSurface.withValues(alpha: 0.2),
                                 ),
                                 padding: const EdgeInsets.symmetric(
                                   vertical: 14,
@@ -1761,7 +1938,7 @@ class _RegenerateWarningDialogState extends State<_RegenerateWarningDialog>
                                 widget.onGenerate();
                               },
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.indigoAccent,
+                                backgroundColor: primary,
                                 foregroundColor: Colors.white,
                                 padding: const EdgeInsets.symmetric(
                                   vertical: 14,
@@ -1793,7 +1970,7 @@ class _RegenerateWarningDialogState extends State<_RegenerateWarningDialog>
                                 _dontShowAgain = value ?? false;
                               });
                             },
-                            activeColor: Colors.indigoAccent,
+                            activeColor: primary,
                             checkColor: Colors.white,
                           ),
                           GestureDetector(
@@ -1806,7 +1983,8 @@ class _RegenerateWarningDialogState extends State<_RegenerateWarningDialog>
                               'Don\'t show again',
                               style: Theme.of(context).textTheme.bodySmall
                                   ?.copyWith(
-                                    color: Colors.white70,
+                                    color:
+                                        onSurface.withValues(alpha: 0.7),
                                     fontSize: 12,
                                   ),
                             ),
@@ -1877,6 +2055,20 @@ class _ErrorDialogState extends State<_ErrorDialog>
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final onSurface = theme.colorScheme.onSurface;
+    final panelGradient = LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: isDark
+          ? const [Color(0xFF1E293B), Color(0xFF0F172A)]
+          : [
+              Colors.white,
+              Colors.white.withValues(alpha: 0.92),
+            ],
+    );
+
     return FadeTransition(
       opacity: _fadeAnimation,
       child: ScaleTransition(
@@ -1887,14 +2079,10 @@ class _ErrorDialogState extends State<_ErrorDialog>
           child: Container(
             constraints: const BoxConstraints(maxWidth: 400),
             decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [Color(0xFF1E293B), Color(0xFF0F172A)],
-              ),
+              gradient: panelGradient,
               borderRadius: BorderRadius.circular(28),
               border: Border.all(
-                color: Colors.redAccent.withValues(alpha: 0.3),
+                color: Colors.redAccent.withValues(alpha: isDark ? 0.3 : 0.2),
                 width: 1.5,
               ),
               boxShadow: [
@@ -1936,9 +2124,10 @@ class _ErrorDialogState extends State<_ErrorDialog>
                   Text(
                     'Error',
                     style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 24,
-                    ),
+                          fontWeight: FontWeight.bold,
+                          fontSize: 24,
+                          color: onSurface,
+                        ),
                   ),
                   const SizedBox(height: 12),
                   Container(
@@ -1953,7 +2142,7 @@ class _ErrorDialogState extends State<_ErrorDialog>
                         widget.error,
                         textAlign: TextAlign.center,
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Colors.white70,
+                          color: onSurface.withValues(alpha: 0.8),
                           height: 1.5,
                         ),
                       ),
@@ -1968,9 +2157,9 @@ class _ErrorDialogState extends State<_ErrorDialog>
                           icon: const Icon(Icons.copy, size: 18),
                           label: const Text('Copy'),
                           style: OutlinedButton.styleFrom(
-                            foregroundColor: Colors.white70,
+                            foregroundColor: onSurface,
                             side: BorderSide(
-                              color: Colors.white.withValues(alpha: 0.2),
+                              color: onSurface.withValues(alpha: 0.2),
                             ),
                             padding: const EdgeInsets.symmetric(vertical: 14),
                             shape: RoundedRectangleBorder(

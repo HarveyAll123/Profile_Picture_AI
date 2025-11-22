@@ -104,7 +104,7 @@ async function runGemini(
 
   const result = await model.generateContent([
     {
-      text: 'You are an expert portrait retoucher that creates clean professional profile photos.',
+      text: 'You are an expert mobile-portrait editor who creates realistic images that look like they were captured on a modern smartphone, keeping people natural and well-integrated into their environments.',
     },
     {text: prompt},
     {

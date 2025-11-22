@@ -96,7 +96,7 @@ The app now follows a **Single Screen Architecture** with a window-like modal sy
 | Screen / Component | Responsibilities |
 | --- | --- |
 | `HomeScreen` | The primary orchestrator. Handles image preview, generation flow, and acts as the container for all "window" overlays. Implements a custom `PopScope` to handle back navigation within the single-screen context. |
-| `SceneSelectionModal` | A pop-out "window" for selecting scenes. Uses a `PageView` for horizontal sliding of scene options. Supports multi-selection (2-6 scenes) with visual feedback. |
+| `SceneSelectionModal` | A pop-out "window" for selecting scenes. Uses a `PageView` for horizontal sliding of scene options. Supports multi-selection (1-10 scenes) with visual feedback. |
 | `HistoryModal` | A dedicated "window" for browsing all previously generated images. Features a grid layout with edge-to-edge scrolling and full-screen previews. |
 | `FullScreenImageOverlay` | A specialized overlay for viewing images in full detail. Supports pinch-to-zoom (constrained to edges), pan, reset zoom animation, and high-quality downloading. |
 | `ImageSourceModal` | A compact modal for choosing between Camera and Gallery inputs. |

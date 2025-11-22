@@ -306,10 +306,17 @@ class _FullScreenImageOverlayState extends State<_FullScreenImageOverlay>
       final centerX = screenSize.width / 2;
       final centerY = screenSize.height / 2;
 
-      targetMatrix = Matrix4.identity()
-        ..translate(centerX, centerY)
-        ..scale(scale)
-        ..translate(-focalPoint.dx, -focalPoint.dy);
+      final translateToCenter = Matrix4.translationValues(centerX, centerY, 0);
+      final scaleMatrix = Matrix4.diagonal3Values(scale, scale, 1);
+      final translateToFocal = Matrix4.translationValues(
+        -focalPoint.dx,
+        -focalPoint.dy,
+        0,
+      );
+
+      targetMatrix = translateToCenter
+        ..multiply(scaleMatrix)
+        ..multiply(translateToFocal);
     }
 
     final currentValue = Matrix4.copy(controller.value);
@@ -362,57 +369,72 @@ class _FullScreenImageOverlayState extends State<_FullScreenImageOverlay>
                 physics: _isZoomed
                     ? const NeverScrollableScrollPhysics()
                     : const PageScrollPhysics(),
+                clipBehavior: Clip.none,
                 itemCount: widget.imageUrls.length,
                 itemBuilder: (context, index) {
                   final controller = _transformationControllers[index];
                   final isZoomed = _isZoomedStates[index];
-                  return GestureDetector(
-                    onDoubleTapDown: (details) =>
-                        _handleDoubleTap(details, index),
-                    child: InteractiveViewer(
-                      transformationController: controller,
-                      minScale: 1.0,
-                      maxScale: 4.0,
-                      boundaryMargin: EdgeInsets.zero,
-                      child: AnimatedBuilder(
-                        animation: controller,
-                        builder: (context, child) {
-                          return Container(
-                            decoration: BoxDecoration(
-                              border: isZoomed
-                                  ? Border.all(
-                                      color: Colors.white.withValues(
-                                        alpha: 0.3,
-                                      ),
-                                      width: 2,
-                                    )
-                                  : null,
-                              borderRadius: isZoomed
-                                  ? BorderRadius.circular(8)
-                                  : null,
-                            ),
-                            child: ClipRRect(
-                              borderRadius: isZoomed
-                                  ? BorderRadius.circular(8)
-                                  : BorderRadius.zero,
-                              child: CachedNetworkImage(
-                                imageUrl: widget.imageUrls[index],
-                                fit: BoxFit.contain,
-                                placeholder: (context, url) => const Center(
-                                  child: CircularProgressIndicator(),
+                  return LayoutBuilder(
+                    builder: (context, constraints) {
+                      final viewer = GestureDetector(
+                        onDoubleTapDown: (details) =>
+                            _handleDoubleTap(details, index),
+                        child: InteractiveViewer(
+                          transformationController: controller,
+                          minScale: 1.0,
+                          maxScale: 4.0,
+                          boundaryMargin: EdgeInsets.zero,
+                          clipBehavior: Clip.hardEdge,
+                          child: AnimatedBuilder(
+                            animation: controller,
+                            builder: (context, child) {
+                              return Container(
+                                decoration: BoxDecoration(
+                                  border: isZoomed
+                                      ? Border.all(
+                                          color: Colors.white.withValues(
+                                            alpha: 0.3,
+                                          ),
+                                          width: 2,
+                                        )
+                                      : null,
+                                  borderRadius: isZoomed
+                                      ? BorderRadius.circular(8)
+                                      : null,
                                 ),
-                                errorWidget: (context, url, error) =>
-                                    const Icon(
-                                      Icons.error,
-                                      size: 40,
-                                      color: Colors.white,
+                                child: ClipRRect(
+                                  borderRadius: isZoomed
+                                      ? BorderRadius.circular(8)
+                                      : BorderRadius.zero,
+                                  child: CachedNetworkImage(
+                                    imageUrl: widget.imageUrls[index],
+                                    fit: BoxFit.contain,
+                                    placeholder: (context, url) => const Center(
+                                      child: CircularProgressIndicator(),
                                     ),
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                    ),
+                                    errorWidget: (context, url, error) =>
+                                        const Icon(
+                                          Icons.error,
+                                          size: 40,
+                                          color: Colors.white,
+                                        ),
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                      );
+
+                      return OverflowBox(
+                        minWidth: constraints.maxWidth + 24,
+                        maxWidth: constraints.maxWidth + 24,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          child: viewer,
+                        ),
+                      );
+                    },
                   );
                 },
               ),

@@ -33,13 +33,28 @@ class _SceneSelectionModalState extends State<SceneSelectionModal> {
 
   Future<void> _handleSceneToggle(String sceneId) async {
     final previousCount = _localSelectedIds.length;
+    var limitReached = false;
     setState(() {
       if (_localSelectedIds.contains(sceneId)) {
         _localSelectedIds.remove(sceneId);
       } else {
-        _localSelectedIds.add(sceneId);
+        if (_localSelectedIds.length >= 10) {
+          limitReached = true;
+        } else {
+          _localSelectedIds.add(sceneId);
+        }
       }
     });
+
+    if (limitReached) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('You can choose up to 10 scenes at once.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
 
     final newCount = _localSelectedIds.length;
     if (widget.onReachedFive != null &&
@@ -132,10 +147,12 @@ class _SceneSelectionModalState extends State<SceneSelectionModal> {
               const SizedBox(height: 6),
               Text(
                 'Choose your scene(s) to generate',
-                style: Theme.of(context)
-                    .textTheme
-                    .bodySmall
-                    ?.copyWith(color: Colors.white70),
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurface
+                          .withValues(alpha: 0.65),
+                    ),
               ),
               const SizedBox(height: 20),
               SizedBox(
@@ -219,12 +236,15 @@ class _SceneSelectionModalState extends State<SceneSelectionModal> {
                     border: Border.all(color: Colors.white10),
                     color: Colors.white.withValues(alpha: 0.03),
                   ),
-                  child: Text(
-                    'No scenes selected',
-                    style: Theme.of(
-                      context,
-                    ).textTheme.bodySmall?.copyWith(color: Colors.white54),
-                  ),
+                child: Text(
+                  'No scenes selected',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurface
+                            .withValues(alpha: 0.45),
+                      ),
+                ),
                 ),
               const SizedBox(height: 20),
               SizedBox(
@@ -234,24 +254,25 @@ class _SceneSelectionModalState extends State<SceneSelectionModal> {
                       ? null
                       : _handleApply,
                   style: ButtonStyle(
-                    backgroundColor: MaterialStateProperty.resolveWith((states) {
+                    backgroundColor:
+                        WidgetStateProperty.resolveWith((states) {
                       const base = Colors.indigoAccent;
-                      if (states.contains(MaterialState.disabled)) {
-                        return base.withOpacity(0.35);
+                      if (states.contains(WidgetState.disabled)) {
+                        return base.withValues(alpha: 0.35);
                       }
                       return base;
                     }),
                     foregroundColor:
-                        MaterialStateProperty.all<Color>(Colors.white),
-                    padding: MaterialStateProperty.all(
+                        WidgetStateProperty.all<Color>(Colors.white),
+                    padding: WidgetStateProperty.all(
                       const EdgeInsets.symmetric(vertical: 14),
                     ),
-                    shape: MaterialStateProperty.all(
+                    shape: WidgetStateProperty.all(
                       RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(16),
                       ),
                     ),
-                    textStyle: MaterialStateProperty.all(
+                    textStyle: WidgetStateProperty.all(
                       const TextStyle(
                         fontWeight: FontWeight.w600,
                         fontSize: 15,
@@ -300,6 +321,32 @@ class _SceneOption extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final gradientColors = isSelected
+        ? (isDark
+            ? preset.gradient
+            : preset.gradient
+                .map((color) => Color.lerp(color, Colors.white, 0.4)!)
+                .toList())
+        : isDark
+            ? const [Color(0xFF111828), Color(0xFF0B1120)]
+            : [
+                theme.colorScheme.surface,
+                theme.colorScheme.surface.withValues(alpha: 0.85),
+              ];
+    final titleColor =
+        (isSelected || isDark) ? Colors.white : theme.colorScheme.onSurface;
+    final subtitleColor = titleColor.withValues(alpha: 0.75);
+    final borderColor = isSelected
+        ? Colors.indigoAccent
+        : theme.colorScheme.onSurface.withValues(alpha: isDark ? 0.18 : 0.15);
+    final iconBg = (isSelected || isDark)
+        ? Colors.black.withValues(alpha: 0.25)
+        : theme.colorScheme.primary.withValues(alpha: 0.08);
+    final iconColor =
+        (isSelected || isDark) ? Colors.white : theme.colorScheme.onSurface;
+
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
@@ -308,13 +355,11 @@ class _SceneOption extends StatelessWidget {
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: isSelected ? Colors.indigoAccent : Colors.white24,
+            color: borderColor,
             width: isSelected ? 2 : 1,
           ),
           gradient: LinearGradient(
-            colors: isSelected
-                ? preset.gradient
-                : const [Color(0xFF111828), Color(0xFF0B1120)],
+            colors: gradientColors,
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
@@ -325,10 +370,10 @@ class _SceneOption extends StatelessWidget {
               height: 40,
               width: 40,
               decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.25),
+                color: iconBg,
                 borderRadius: BorderRadius.circular(10),
               ),
-              child: Icon(preset.icon, color: Colors.white, size: 20),
+              child: Icon(preset.icon, color: iconColor, size: 20),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -340,13 +385,14 @@ class _SceneOption extends StatelessWidget {
                     preset.title,
                     style: Theme.of(context).textTheme.titleSmall?.copyWith(
                       fontWeight: FontWeight.w600,
+                      color: titleColor,
                     ),
                   ),
                   const SizedBox(height: 2),
                   Text(
                     preset.subtitle,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Colors.white70,
+                      color: subtitleColor,
                       fontSize: 11,
                     ),
                     maxLines: 1,

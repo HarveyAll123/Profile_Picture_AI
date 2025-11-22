@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
+import 'providers/theme_mode_provider.dart';
 import 'screens/gallery_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/view_result_screen.dart';
 import 'services/firebase_initializer.dart';
+import 'theme/app_theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -31,79 +33,18 @@ Future<void> main() async {
   runApp(const ProviderScope(child: ProfilePicApp()));
 }
 
-class ProfilePicApp extends StatelessWidget {
+class ProfilePicApp extends ConsumerWidget {
   const ProfilePicApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    final baseTextTheme = ThemeData(
-      brightness: Brightness.dark,
-      useMaterial3: true,
-    ).textTheme;
-
+  Widget build(BuildContext context, WidgetRef ref) {
+    final themeMode = ref.watch(themeModeProvider);
     return MaterialApp(
       title: 'AI Profile Picture Generator',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.indigo,
-          brightness: Brightness.dark,
-        ),
-        useMaterial3: true,
-        scaffoldBackgroundColor: const Color(0xFF0F172A),
-        textTheme: baseTextTheme.apply(
-          bodyColor: Colors.white,
-          displayColor: Colors.white,
-        ),
-        appBarTheme: const AppBarTheme(
-          centerTitle: false,
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          foregroundColor: Colors.white,
-        ),
-        snackBarTheme: const SnackBarThemeData(
-          backgroundColor: Color(0xFF1F2937),
-          contentTextStyle: TextStyle(color: Colors.white),
-        ),
-        scrollbarTheme: ScrollbarThemeData(
-          radius: const Radius.circular(999),
-          thickness: WidgetStateProperty.all(4),
-          thumbColor: WidgetStateProperty.resolveWith(
-            (states) => states.contains(WidgetState.dragged)
-                ? const Color(0xFF7C89FF)
-                : const Color(0xFF5E66F9),
-          ),
-          trackColor: WidgetStateProperty.all(const Color(0x26FFFFFF)),
-        ),
-        cardTheme: const CardThemeData(
-          color: Color(0xFF020617),
-          elevation: 8,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.all(Radius.circular(24)),
-          ),
-        ),
-        inputDecorationTheme: InputDecorationTheme(
-          filled: true,
-          fillColor: const Color(0xFF020617),
-          hintStyle: const TextStyle(color: Colors.white54),
-          labelStyle: const TextStyle(color: Colors.white70),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(16),
-            borderSide: const BorderSide(color: Color(0x26FFFFFF)),
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(16),
-            borderSide: const BorderSide(color: Color(0x26FFFFFF)),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(16),
-            borderSide: const BorderSide(
-              color: Colors.indigoAccent,
-              width: 1.4,
-            ),
-          ),
-        ),
-      ),
+      themeMode: themeMode,
+      theme: AppTheme.light,
+      darkTheme: AppTheme.dark,
       initialRoute: HomeScreen.routeName,
       routes: {
         HomeScreen.routeName: (_) => const HomeScreen(),
