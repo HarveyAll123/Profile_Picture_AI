@@ -178,7 +178,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                                   });
                                 },
                                 onEditScenes: () =>
-                                    _showSceneSelectionModal(context),
+                                    _showSceneSelectionModal(context, user.uid),
                                 transitionController: _transitionController,
                               );
 
@@ -204,7 +204,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                               onUpload: () =>
                                   _showImageSourceDialog(context, user.uid),
                               onScenes: () =>
-                                  _showSceneSelectionModal(context),
+                                  _showSceneSelectionModal(context, user.uid),
                               hasScenesSelected: _selectedSceneIds.isNotEmpty,
                               hasGeneratedImages:
                                   generationState.generatedImages.isNotEmpty,
@@ -273,6 +273,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     return true;
   }
 
+  Future<bool> _showQuickGeneratePrompt(BuildContext context) async {
+    final result = await showDialog<bool>(
+      context: context,
+      useRootNavigator: true,
+      barrierColor: Colors.black.withValues(alpha: 0.7),
+      builder: (context) => const _QuickGeneratePromptDialog(),
+    );
+    return result ?? false;
+  }
+
   Future<void> _showErrorDialog(BuildContext context, String error) async {
     return showDialog<void>(
       context: context,
@@ -286,8 +296,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     );
   }
 
-  void _showSceneSelectionModal(BuildContext context) {
-    showModalBottomSheet(
+  Future<void> _showSceneSelectionModal(
+    BuildContext context,
+    String uid,
+  ) async {
+    var shouldPromptForGeneration = false;
+    var hadExistingImages = false;
+
+    await showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
@@ -323,10 +339,33 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 ..addAll(selectedIds);
             });
 
+            final uploadState = ref.read(uploadControllerProvider);
+            final generationState = ref.read(generationControllerProvider);
+            final hasPhotoReady =
+                uploadState.downloadUrl != null && !uploadState.isUploading;
+            final hasScenesSelected = selectedIds.isNotEmpty;
+            final generationIdle = !generationState.isGenerating;
+
+            shouldPromptForGeneration =
+                hasPhotoReady && hasScenesSelected && generationIdle;
+            hadExistingImages = generationState.generatedImages.isNotEmpty;
+
             return true;
           },
         ),
       ),
+    );
+
+    if (!context.mounted) return;
+    if (!shouldPromptForGeneration) return;
+
+    final shouldGenerateNow = await _showQuickGeneratePrompt(context);
+    if (!context.mounted) return;
+    if (!shouldGenerateNow) return;
+
+    await _onGeneratePressed(
+      uid: uid,
+      hasExistingImages: hadExistingImages,
     );
   }
 
@@ -802,6 +841,8 @@ class _PreviewPanel extends ConsumerWidget {
   final VoidCallback onEditScenes;
   final AnimationController transitionController;
 
+  bool get _hasUploadedPhoto => uploadState.downloadUrl != null;
+  bool get _hasSelectedScenes => selectedSceneIds.isNotEmpty;
   bool get _hasGeneratedImages => generationState.generatedImages.isNotEmpty;
   bool get _shouldShowGenerated => _hasGeneratedImages && showGeneratedImages;
 
@@ -811,16 +852,44 @@ class _PreviewPanel extends ConsumerWidget {
       !generationState.isGenerating &&
       !uploadState.isUploading;
 
-  String get _generateLabel {
+  String get _primaryActionLabel {
     if (uploadState.isUploading) return 'Uploading photo...';
     if (generationState.isGenerating) return 'Crafting looks...';
-    if (uploadState.downloadUrl == null) return 'Upload photo first';
-    if (selectedSceneIds.isEmpty) return 'Select scenes to continue';
+    if (!_hasUploadedPhoto) return 'Upload photo first';
+    if (!_hasSelectedScenes) return 'Select scenes';
     return 'Generate ${selectedSceneIds.length} look${selectedSceneIds.length > 1 ? 's' : ''}';
+  }
+
+  IconData get _primaryActionIcon {
+    if (uploadState.isUploading) return Icons.file_upload_outlined;
+    if (generationState.isGenerating) return Icons.auto_awesome;
+    if (!_hasUploadedPhoto) return Icons.file_upload_outlined;
+    if (!_hasSelectedScenes) return Icons.palette_outlined;
+    return Icons.auto_awesome;
+  }
+
+  VoidCallback? get _primaryAction {
+    if (uploadState.isUploading || generationState.isGenerating) {
+      return null;
+    }
+    if (!_hasUploadedPhoto) return onChangePhoto;
+    if (!_hasSelectedScenes) return onEditScenes;
+    return _canGenerate ? onGenerate : null;
+  }
+
+  String? get _helperText {
+    if (!_hasUploadedPhoto) {
+      return 'Tap the portrait workspace or use the Upload button below to begin.';
+    }
+    if (!_hasSelectedScenes) {
+      return 'Choose up to 10 scenes to style the look.';
+    }
+    return null;
   }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final helperText = _helperText;
     return GlassContainer(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -872,22 +941,20 @@ class _PreviewPanel extends ConsumerWidget {
               onTap: onEditScenes,
             ),
           ] else ...[
-            if (uploadState.downloadUrl != null) ...[
-              PrimaryButton(
-                label: _generateLabel,
-                icon: Icons.auto_awesome,
-                onPressed: _canGenerate ? onGenerate : null,
-              ),
-              const SizedBox(height: 12),
-            ],
+            PrimaryButton(
+              label: _primaryActionLabel,
+              icon: _primaryActionIcon,
+              onPressed: _primaryAction,
+            ),
+            const SizedBox(height: 12),
             _SelectedScenesSummary(
               selectedSceneIds: selectedSceneIds,
               onTap: onEditScenes,
             ),
             const SizedBox(height: 12),
-            if (uploadState.downloadUrl == null)
+            if (helperText != null)
               Text(
-                'Tap the portrait workspace or use the Upload button below to begin.',
+                helperText,
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: Theme.of(context)
@@ -1563,6 +1630,152 @@ class _AuroraBlob extends StatelessWidget {
         decoration: BoxDecoration(
           shape: BoxShape.circle,
           gradient: RadialGradient(colors: colors),
+        ),
+      ),
+    );
+  }
+}
+
+class _QuickGeneratePromptDialog extends StatelessWidget {
+  const _QuickGeneratePromptDialog();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final onSurface = theme.colorScheme.onSurface;
+    final primary = theme.colorScheme.primary;
+    final panelGradient = LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: isDark
+          ? const [Color(0xFF1E293B), Color(0xFF0F172A)]
+          : [
+              Colors.white,
+              Colors.white.withValues(alpha: 0.94),
+            ],
+    );
+
+    void close(bool result) {
+      Navigator.of(context, rootNavigator: true).pop(result);
+    }
+
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      elevation: 0,
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 400),
+        decoration: BoxDecoration(
+          gradient: panelGradient,
+          borderRadius: BorderRadius.circular(28),
+          border: Border.all(
+            color: primary.withValues(alpha: isDark ? 0.3 : 0.2),
+            width: 1.5,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: isDark ? 0.5 : 0.14),
+              blurRadius: 26,
+              offset: const Offset(0, 18),
+            ),
+          ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 64,
+                height: 64,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      primary,
+                      primary.withValues(alpha: 0.7),
+                    ],
+                  ),
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: primary.withValues(alpha: 0.4),
+                      blurRadius: 18,
+                    ),
+                  ],
+                ),
+                child: const Icon(
+                  Icons.auto_awesome,
+                  color: Colors.white,
+                  size: 30,
+                ),
+              ),
+              const SizedBox(height: 20),
+              Text(
+                'Generate with these scenes?',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: onSurface,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'You\'ve uploaded a portrait and selected scene styles. Generate the looks now or keep adjusting.',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: onSurface.withValues(alpha: 0.7),
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 28),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => close(false),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: onSurface,
+                        side: BorderSide(
+                          color: onSurface.withValues(alpha: 0.2),
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                      ),
+                      child: const Text(
+                        'Not now',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () => close(true),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: primary,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        elevation: 4,
+                      ),
+                      child: const Text(
+                        'Generate now',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
